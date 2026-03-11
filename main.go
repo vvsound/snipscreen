@@ -161,7 +161,7 @@ func drawXorRect(x1, y1, x2, y2 int32) {
 	hdc, _, _ := procGetDC.Call(0)
 	defer procReleaseDC.Call(0, hdc)
 
-	pen, _, _ := procCreatePen.Call(PS_SOLID, 2, 0x0000FF) // 红色(BGR)
+	pen, _, _ := procCreatePen.Call(PS_SOLID, 4, 0x0000FF) // 红色(BGR) 4px
 	nullBrush, _, _ := procGetStockObject.Call(NULL_BRUSH)
 	oldPen, _, _ := procSelectObject.Call(hdc, pen)
 	procSelectObject.Call(hdc, nullBrush)
@@ -239,9 +239,10 @@ func copyToClipboard(img *image.RGBA) {
 	procCloseClipboard.Call()
 }
 
-// kernel32.Beep 直接驱动扬声器，不依赖系统音量和音效设置
+// 双音提示：高音 → 更高音，清脆的"叮"声
 func playBeep() {
-	procBeep.Call(1000, 80) // 1000Hz，80毫秒
+	procBeep.Call(1318, 80) // E6
+	procBeep.Call(1760, 120) // A6
 }
 
 func wndProc(hwnd, msg, wParam, lParam uintptr) uintptr {
