@@ -6,6 +6,7 @@ import (
 	"image/png"
 	"os"
 	"syscall"
+	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -345,7 +346,7 @@ func main() {
 	procUpdateWindow.Call(hwnd)
 
 	// 等待窗口合成器就绪，避免首次运行黑屏/白屏
-	windows.Sleep(150)
+	time.Sleep(150 * time.Millisecond)
 
 	var msg MSG
 	for {
