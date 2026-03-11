@@ -344,6 +344,9 @@ func main() {
 	procShowWindow.Call(hwnd, SW_SHOW)
 	procUpdateWindow.Call(hwnd)
 
+	// 等待窗口合成器就绪，避免首次运行黑屏/白屏
+	windows.Sleep(150)
+
 	var msg MSG
 	for {
 		r, _, _ := procGetMessage.Call(uintptr(unsafe.Pointer(&msg)), 0, 0, 0)
