@@ -21,63 +21,62 @@ static void beepDone()  { Beep(1318, 80); Beep(1760, 120); }
 static void captureFullScreen() {
     g_W = GetSystemMetrics(SM_CXSCREEN);
     g_H = GetSystemMetrics(SM_CYSCREEN);
+
     HDC hdcScreen = GetDC(nullptr);
-    g_hMemDC      = CreateCompatibleDC(hdcScreen);
-    g_hFullBmp    = CreateCompatibleBitmap(hdcScreen, g_W, g_H);
+    g_hMemDC   = CreateCompatibleDC(hdcScreen);
+    g_hFullBmp = CreateCompatibleBitmap(hdcScreen, g_W, g_H);
     SelectObject(g_hMemDC, g_hFullBmp);
     BitBlt(g_hMemDC, 0, 0, g_W, g_H, hdcScreen, 0, 0, SRCCOPY | CAPTUREBLT);
     ReleaseDC(nullptr, hdcScreen);
 }
 
 static void copyRegionToClipboard(int x1, int y1, int w, int h) {
-    // 1. 新建一个屏幕兼容DC+Bitmap，把区域从全屏内存DC拷进去
-    HDC     hdcScreen = GetDC(nullptr);
-    HDC     hdcCrop   = CreateCompatibleDC(hdcScreen);
-    HBITMAP hCrop     = CreateCompatibleBitmap(hdcScreen, w, h);
-    HGDIOBJ hOld      = SelectObject(hdcCrop, hCrop);
-    BitBlt(hdcCrop, 0, 0, w, h, g_hMemDC, x1, y1, SRCCOPY);
-    SelectObject(hdcCrop, hOld); // 先deselect再GetDIBits
+    HDC hdcScreen = GetDC(nullptr);
 
-    // 2. 准备 DIB 头（bottom-up，正高度，24bpp，行4字节对齐）
-    int stride = ((w * 3 + 3) & ~3);
-    int pixSz  = stride * h;
+    // 创建目标bitmap并拷贝区域
+    HDC     hdcCrop = CreateCompatibleDC(hdcScreen);
+    HBITMAP hCrop   = CreateCompatibleBitmap(hdcScreen, w, h);
+    SelectObject(hdcCrop, hCrop);
+    BitBlt(hdcCrop, 0, 0, w, h, g_hMemDC, x1, y1, SRCCOPY);
+
+    // 必须先deselect才能GetDIBits
+    SelectObject(hdcCrop, (HBITMAP)GetStockObject(NULL_BRUSH));
+    DeleteDC(hdcCrop);
+
+    // 准备DIB（bottom-up 24bpp）
+    int stride  = ((w * 3 + 3) & ~3);
+    int pixSize = stride * h;
+    DWORD total = sizeof(BITMAPINFOHEADER) + pixSize;
+
+    HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, total);
+    BYTE*   ptr  = (BYTE*)GlobalLock(hMem);
 
     BITMAPINFO bmi{};
     bmi.bmiHeader.biSize        = sizeof(BITMAPINFOHEADER);
     bmi.bmiHeader.biWidth       = w;
-    bmi.bmiHeader.biHeight      = h;   // 正值 = bottom-up（剪贴板标准）
+    bmi.bmiHeader.biHeight      = h;  // bottom-up
     bmi.bmiHeader.biPlanes      = 1;
     bmi.bmiHeader.biBitCount    = 24;
     bmi.bmiHeader.biCompression = BI_RGB;
-    bmi.bmiHeader.biSizeImage   = pixSz;
+    bmi.bmiHeader.biSizeImage   = pixSize;
 
-    // 3. 分配全局内存：DIB头 + 像素
-    DWORD   total = sizeof(BITMAPINFOHEADER) + pixSz;
-    HGLOBAL hMem  = GlobalAlloc(GMEM_MOVEABLE, total);
-    BYTE*   ptr   = (BYTE*)GlobalLock(hMem);
     memcpy(ptr, &bmi.bmiHeader, sizeof(BITMAPINFOHEADER));
 
-    // 4. GetDIBits：用屏幕DC + hCrop bitmap读像素
-    int lines = GetDIBits(hdcScreen, hCrop, 0, h,
-                          ptr + sizeof(BITMAPINFOHEADER),
-                          &bmi, DIB_RGB_COLORS);
+    // 用屏幕DC + deselected hCrop 读像素
+    GetDIBits(hdcScreen, hCrop, 0, h,
+              ptr + sizeof(BITMAPINFOHEADER),
+              &bmi, DIB_RGB_COLORS);
 
     GlobalUnlock(hMem);
-    DeleteObject(hCrop);
-    DeleteDC(hdcCrop);
     ReleaseDC(nullptr, hdcScreen);
+    DeleteObject(hCrop);
 
-    if (lines == 0) {
-        // GetDIBits失败，放弃
-        GlobalFree(hMem);
-        return;
-    }
-
-    // 5. 写入剪贴板
     if (OpenClipboard(nullptr)) {
         EmptyClipboard();
         SetClipboardData(CF_DIB, hMem);
         CloseClipboard();
+    } else {
+        GlobalFree(hMem);
     }
 }
 
