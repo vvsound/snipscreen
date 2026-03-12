@@ -1,29 +1,25 @@
 // snip.cpp
-// g++ -O2 -o snip.exe snip.cpp -lgdi32 -luser32
+// g++ -O2 -o snip.exe snip.cpp -lgdi32 -luser32 -lmsimg32
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
-static HDC  g_memDC;   // 原始截图
-static HDC  g_dimDC;   // 暗化截图（40%黑色遮罩）
+static HDC  g_memDC;
+static HDC  g_dimDC;
 static int  g_W, g_H;
 static bool g_drag;
 static int  g_x0, g_y0;
 
 static void swap(int &a, int &b) { int t=a; a=b; b=t; }
 
-// 把 src 画到 dst 并叠加40%黑色遮罩
 static void makeDim(HDC src, HDC dst) {
     BitBlt(dst, 0, 0, g_W, g_H, src, 0, 0, SRCCOPY);
-    // 用 AlphaBlend 叠加半透明黑色
     HDC hBlk = CreateCompatibleDC(src);
     HBITMAP hBmp = CreateCompatibleBitmap(src, g_W, g_H);
     SelectObject(hBlk, hBmp);
-    HBRUSH br = CreateSolidBrush(RGB(0,0,0));
-    RECT rc = {0,0,g_W,g_H};
-    FillRect(hBlk, &rc, br);
-    DeleteObject(br);
-    BLENDFUNCTION bf = {AC_SRC_OVER, 0, 100, 0}; // alpha=100 ≈ 40%
+    RECT rc = {0, 0, g_W, g_H};
+    FillRect(hBlk, &rc, (HBRUSH)GetStockObject(BLACK_BRUSH));
+    BLENDFUNCTION bf = {AC_SRC_OVER, 0, 100, 0};
     AlphaBlend(dst, 0, 0, g_W, g_H, hBlk, 0, 0, g_W, g_H, bf);
     DeleteObject(hBmp);
     DeleteDC(hBlk);
@@ -31,12 +27,9 @@ static void makeDim(HDC src, HDC dst) {
 
 static void redraw(HWND hw, int x1, int y1, int x2, int y2) {
     HDC dc = GetDC(hw);
-    // 画暗化背景
     BitBlt(dc, 0, 0, g_W, g_H, g_dimDC, 0, 0, SRCCOPY);
-    // 选区内露出原图
     BitBlt(dc, x1, y1, x2-x1, y2-y1, g_memDC, x1, y1, SRCCOPY);
-    // 红色边框
-    HPEN pen = CreatePen(PS_SOLID, 2, RGB(255, 0, 0));
+    HPEN pen = CreatePen(PS_SOLID, 6, RGB(0, 0, 0));
     HGDIOBJ op = SelectObject(dc, pen);
     SelectObject(dc, GetStockObject(NULL_BRUSH));
     Rectangle(dc, x1, y1, x2, y2);
@@ -111,13 +104,11 @@ int WINAPI WinMain(HINSTANCE hi, HINSTANCE, LPSTR, int) {
     g_W = GetSystemMetrics(SM_CXSCREEN);
     g_H = GetSystemMetrics(SM_CYSCREEN);
 
-    // 截图
     HDC hScr = GetDC(nullptr);
     g_memDC = CreateCompatibleDC(hScr);
     SelectObject(g_memDC, CreateCompatibleBitmap(hScr, g_W, g_H));
     BitBlt(g_memDC, 0, 0, g_W, g_H, hScr, 0, 0, SRCCOPY | CAPTUREBLT);
 
-    // 暗化版本
     g_dimDC = CreateCompatibleDC(hScr);
     SelectObject(g_dimDC, CreateCompatibleBitmap(hScr, g_W, g_H));
     ReleaseDC(nullptr, hScr);
