@@ -4,19 +4,19 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
-static HDC     g_memDC;
-static HBITMAP g_memBmp;
-static int     g_W, g_H;
-static bool    g_drag;
-static int     g_x0, g_y0;
+static HDC  g_memDC;
+static int  g_W, g_H;
+static bool g_drag;
+static int  g_x0, g_y0;
+
+static void swap(int &a, int &b) { int t=a; a=b; b=t; }
 
 static LRESULT CALLBACK WndProc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
     switch (msg) {
 
     case WM_PAINT: {
         PAINTSTRUCT ps;
-        HDC dc = BeginPaint(hw, &ps);
-        BitBlt(dc, 0, 0, g_W, g_H, g_memDC, 0, 0, SRCCOPY);
+        BitBlt(BeginPaint(hw, &ps), 0, 0, g_W, g_H, g_memDC, 0, 0, SRCCOPY);
         EndPaint(hw, &ps);
         return 0;
     }
@@ -31,14 +31,12 @@ static LRESULT CALLBACK WndProc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
     case WM_MOUSEMOVE:
         if (!g_drag) return 0;
         {
-            int x1 = g_x0, y1 = g_y0;
-            int x2 = (short)LOWORD(lp), y2 = (short)HIWORD(lp);
-            if (x1 > x2) { int t=x1; x1=x2; x2=t; }
-            if (y1 > y2) { int t=y1; y1=y2; y2=t; }
-
+            int x1=g_x0, y1=g_y0, x2=(short)LOWORD(lp), y2=(short)HIWORD(lp);
+            if (x1>x2) swap(x1,x2);
+            if (y1>y2) swap(y1,y2);
             HDC dc = GetDC(hw);
             BitBlt(dc, 0, 0, g_W, g_H, g_memDC, 0, 0, SRCCOPY);
-            HPEN pen = CreatePen(PS_SOLID, 2, RGB(255, 0, 0));
+            HPEN pen = CreatePen(PS_SOLID, 2, RGB(255,0,0));
             HGDIOBJ op = SelectObject(dc, pen);
             SelectObject(dc, GetStockObject(NULL_BRUSH));
             Rectangle(dc, x1, y1, x2, y2);
@@ -53,21 +51,16 @@ static LRESULT CALLBACK WndProc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
         g_drag = false;
         ReleaseCapture();
         {
-            int x1 = g_x0, y1 = g_y0;
-            int x2 = (short)LOWORD(lp), y2 = (short)HIWORD(lp);
-            if (x1 > x2) { int t=x1; x1=x2; x2=t; }
-            if (y1 > y2) { int t=y1; y1=y2; y2=t; }
-            int w = x2-x1, h = y2-y1;
-
-            if (w > 2 && h > 2) {
-                HDC hScr = GetDC(nullptr);
-                HDC hTmp = CreateCompatibleDC(hScr);
-                HBITMAP hBmp = CreateCompatibleBitmap(hScr, w, h);
+            int x1=g_x0, y1=g_y0, x2=(short)LOWORD(lp), y2=(short)HIWORD(lp);
+            if (x1>x2) swap(x1,x2);
+            if (y1>y2) swap(y1,y2);
+            int w=x2-x1, h=y2-y1;
+            if (w>2 && h>2) {
+                HDC hTmp = CreateCompatibleDC(g_memDC);
+                HBITMAP hBmp = CreateCompatibleBitmap(g_memDC, w, h);
                 SelectObject(hTmp, hBmp);
                 BitBlt(hTmp, 0, 0, w, h, g_memDC, x1, y1, SRCCOPY);
                 DeleteDC(hTmp);
-                ReleaseDC(nullptr, hScr);
-
                 OpenClipboard(nullptr);
                 EmptyClipboard();
                 SetClipboardData(CF_BITMAP, hBmp);
@@ -89,30 +82,26 @@ static LRESULT CALLBACK WndProc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
 }
 
 int WINAPI WinMain(HINSTANCE hi, HINSTANCE, LPSTR, int) {
-    // 截屏
     g_W = GetSystemMetrics(SM_CXSCREEN);
     g_H = GetSystemMetrics(SM_CYSCREEN);
+
     HDC hScr = GetDC(nullptr);
     g_memDC  = CreateCompatibleDC(hScr);
-    g_memBmp = CreateCompatibleBitmap(hScr, g_W, g_H);
-    SelectObject(g_memDC, g_memBmp);
+    SelectObject(g_memDC, CreateCompatibleBitmap(hScr, g_W, g_H));
     BitBlt(g_memDC, 0, 0, g_W, g_H, hScr, 0, 0, SRCCOPY | CAPTUREBLT);
     ReleaseDC(nullptr, hScr);
 
-    // 窗口
-    WNDCLASSEXW wc = { sizeof(wc) };
+    WNDCLASSEXW wc = {sizeof(wc)};
     wc.lpfnWndProc   = WndProc;
     wc.hInstance     = hi;
     wc.hCursor       = LoadCursorW(nullptr, (LPCWSTR)IDC_CROSS);
     wc.lpszClassName = L"snip";
     RegisterClassExW(&wc);
 
-    HWND hw = CreateWindowExW(
-        WS_EX_TOPMOST, L"snip", L"", WS_POPUP,
+    HWND hw = CreateWindowExW(WS_EX_TOPMOST, L"snip", L"", WS_POPUP,
         0, 0, g_W, g_H, nullptr, nullptr, hi, nullptr);
-
     ShowWindow(hw, SW_SHOW);
-    UpdateWindow(hw);
+    SetForegroundWindow(hw);
 
     MSG msg;
     while (GetMessageW(&msg, nullptr, 0, 0)) {
@@ -120,7 +109,6 @@ int WINAPI WinMain(HINSTANCE hi, HINSTANCE, LPSTR, int) {
         DispatchMessageW(&msg);
     }
 
-    DeleteObject(g_memBmp);
     DeleteDC(g_memDC);
     return 0;
 }
