@@ -24,7 +24,8 @@ static void captureFullScreen() {
     g_hMemDC  = CreateCompatibleDC(hScr);
     g_hBmp    = CreateCompatibleBitmap(hScr, g_W, g_H);
     SelectObject(g_hMemDC, g_hBmp);
-    BitBlt(g_hMemDC, 0, 0, g_W, g_H, hScr, 0, 0, SRCCOPY|CAPTUREBLT);
+    // 使用 PrintWindow 替代 BitBlt，解决 DWM 硬件加速下黑屏问题
+    PrintWindow(GetDesktopWindow(), g_hMemDC, PW_RENDERFULLCONTENT);
     ReleaseDC(nullptr, hScr);
 }
 
@@ -114,6 +115,7 @@ static LRESULT CALLBACK WndProc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
 }
 
 int WINAPI WinMain(HINSTANCE hi, HINSTANCE, LPSTR, int) {
+    DwmFlush();
     captureFullScreen();
     beepReady();
 
@@ -127,13 +129,6 @@ int WINAPI WinMain(HINSTANCE hi, HINSTANCE, LPSTR, int) {
 
     HWND hw = CreateWindowExW(WS_EX_TOPMOST, L"Snip", L"",
         WS_POPUP, 0, 0, g_W, g_H, nullptr, nullptr, hi, nullptr);
-
-    DwmFlush();
-
-    // 先贴截图再显示，避免黑屏
-    HDC hdc = GetDC(hw);
-    BitBlt(hdc, 0, 0, g_W, g_H, g_hMemDC, 0, 0, SRCCOPY);
-    ReleaseDC(hw, hdc);
 
     ShowWindow(hw, SW_SHOW);
     UpdateWindow(hw);
