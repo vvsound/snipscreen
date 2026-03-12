@@ -135,7 +135,6 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
 
     case WM_KEYDOWN: {
         if (wParam == VK_ESCAPE) {
-            // ESC = 截全屏
             if (g_hasPrev) {
                 HDC hdc = GetDC(hwnd);
                 drawXorRect(hdc, g_prevRect);
@@ -180,6 +179,8 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int) {
     DwmFlush();
     ShowWindow(hwnd, SW_SHOW);
     UpdateWindow(hwnd);
+    SetForegroundWindow(hwnd);
+    SetFocus(hwnd);
 
     MSG msg{};
     while (GetMessageW(&msg, nullptr, 0, 0)) {
