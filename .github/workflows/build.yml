@@ -15,7 +15,7 @@ jobs:
     - uses: actions/checkout@v4
 
     - name: Build with g++
-      run: g++ -O2 -o snip.exe snip.cpp -lgdi32 -luser32 -ldwmapi
+    run: g++ -O2 -o snip.exe snip.cpp -lgdi32 -luser32 -ldwmapi -lshcore
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4
