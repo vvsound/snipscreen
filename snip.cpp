@@ -1,214 +1,133 @@
 // snip.cpp
-// 编译: g++ -O2 -o snip.exe snip.cpp -lgdi32 -luser32 -ldwmapi
+// g++ -O2 -o snip.exe snip.cpp -lgdi32 -luser32 -ldwmapi
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <dwmapi.h>
 #include <algorithm>
 using std::swap;
 
-static HBITMAP g_hFullBmp = nullptr;
-static HDC     g_hMemDC   = nullptr;
-static int     g_W = 0, g_H = 0;
+static HDC  g_hMemDC = nullptr;
+static int  g_W = 0, g_H = 0;
+static bool  g_drag = false;
+static POINT g_s{}, g_e{};
+static bool  g_hasPrev = false;
+static RECT  g_prev{};
 
-static bool  g_dragging = false;
-static POINT g_start{}, g_end{};
-static bool  g_hasPrev  = false;
-static RECT  g_prevRect{};
-
-static void beepReady() { Beep(880, 80);  Beep(1318, 120); }
-static void beepDone()  { Beep(1318, 80); Beep(1760, 120); }
+static void beepReady() { Beep(880,80);  Beep(1318,120); }
+static void beepDone()  { Beep(1318,80); Beep(1760,120); }
 
 static void captureFullScreen() {
     g_W = GetSystemMetrics(SM_CXSCREEN);
     g_H = GetSystemMetrics(SM_CYSCREEN);
-
-    HDC hdcScreen = GetDC(nullptr);
-    g_hMemDC   = CreateCompatibleDC(hdcScreen);
-    g_hFullBmp = CreateCompatibleBitmap(hdcScreen, g_W, g_H);
-    SelectObject(g_hMemDC, g_hFullBmp);
-    BitBlt(g_hMemDC, 0, 0, g_W, g_H, hdcScreen, 0, 0, SRCCOPY | CAPTUREBLT);
-    ReleaseDC(nullptr, hdcScreen);
+    HDC hScr = GetDC(nullptr);
+    g_hMemDC = CreateCompatibleDC(hScr);
+    SelectObject(g_hMemDC, CreateCompatibleBitmap(hScr, g_W, g_H));
+    BitBlt(g_hMemDC, 0, 0, g_W, g_H, hScr, 0, 0, SRCCOPY|CAPTUREBLT);
+    ReleaseDC(nullptr, hScr);
 }
 
-static void copyRegionToClipboard(int x1, int y1, int w, int h) {
-    HDC hdcScreen = GetDC(nullptr);
+static void toClipboard(int x, int y, int w, int h) {
+    HDC hScr = GetDC(nullptr);
+    HDC hTmp = CreateCompatibleDC(hScr);
+    HBITMAP hBmp = CreateCompatibleBitmap(hScr, w, h);
+    HGDIOBJ hOld = SelectObject(hTmp, hBmp);
+    BitBlt(hTmp, 0, 0, w, h, g_hMemDC, x, y, SRCCOPY);
+    SelectObject(hTmp, hOld);
+    DeleteDC(hTmp);
 
-    // 创建目标bitmap并拷贝区域
-    HDC     hdcCrop = CreateCompatibleDC(hdcScreen);
-    HBITMAP hCrop   = CreateCompatibleBitmap(hdcScreen, w, h);
-    SelectObject(hdcCrop, hCrop);
-    BitBlt(hdcCrop, 0, 0, w, h, g_hMemDC, x1, y1, SRCCOPY);
-
-    // 必须先deselect才能GetDIBits
-    SelectObject(hdcCrop, (HBITMAP)GetStockObject(NULL_BRUSH));
-    DeleteDC(hdcCrop);
-
-    // 准备DIB（bottom-up 24bpp）
-    int stride  = ((w * 3 + 3) & ~3);
-    int pixSize = stride * h;
-    DWORD total = sizeof(BITMAPINFOHEADER) + pixSize;
-
-    HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, total);
-    BYTE*   ptr  = (BYTE*)GlobalLock(hMem);
-
-    BITMAPINFO bmi{};
-    bmi.bmiHeader.biSize        = sizeof(BITMAPINFOHEADER);
-    bmi.bmiHeader.biWidth       = w;
-    bmi.bmiHeader.biHeight      = h;  // bottom-up
-    bmi.bmiHeader.biPlanes      = 1;
-    bmi.bmiHeader.biBitCount    = 24;
-    bmi.bmiHeader.biCompression = BI_RGB;
-    bmi.bmiHeader.biSizeImage   = pixSize;
-
-    memcpy(ptr, &bmi.bmiHeader, sizeof(BITMAPINFOHEADER));
-
-    // 用屏幕DC + deselected hCrop 读像素
-    GetDIBits(hdcScreen, hCrop, 0, h,
-              ptr + sizeof(BITMAPINFOHEADER),
-              &bmi, DIB_RGB_COLORS);
-
+    int stride = (w*3+3)&~3, pixSz = stride*h;
+    HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE|GMEM_ZEROINIT, sizeof(BITMAPINFOHEADER)+pixSz);
+    BYTE* p = (BYTE*)GlobalLock(hMem);
+    BITMAPINFO bi{}; bi.bmiHeader = {sizeof(BITMAPINFOHEADER),w,h,1,24,BI_RGB,DWORD(pixSz)};
+    memcpy(p, &bi.bmiHeader, sizeof(BITMAPINFOHEADER));
+    GetDIBits(hScr, hBmp, 0, h, p+sizeof(BITMAPINFOHEADER), &bi, DIB_RGB_COLORS);
     GlobalUnlock(hMem);
-    ReleaseDC(nullptr, hdcScreen);
-    DeleteObject(hCrop);
+    DeleteObject(hBmp);
+    ReleaseDC(nullptr, hScr);
 
-    if (OpenClipboard(nullptr)) {
-        EmptyClipboard();
-        SetClipboardData(CF_DIB, hMem);
-        CloseClipboard();
-    } else {
-        GlobalFree(hMem);
-    }
+    OpenClipboard(nullptr);
+    EmptyClipboard();
+    SetClipboardData(CF_DIB, hMem);
+    CloseClipboard();
 }
 
-static void drawXorRect(HDC hdc, RECT r) {
-    if (r.right  < r.left) swap(r.left,  r.right);
-    if (r.bottom < r.top)  swap(r.top,   r.bottom);
-    if (r.right - r.left < 2 || r.bottom - r.top < 2) return;
-    int     oldRop = SetROP2(hdc, R2_NOT);
-    HPEN    hPen   = CreatePen(PS_SOLID, 2, RGB(255, 0, 0));
-    HPEN    oldPen = (HPEN)SelectObject(hdc, hPen);
-    HGDIOBJ oldBr  = SelectObject(hdc, GetStockObject(NULL_BRUSH));
+static void xorRect(HDC hdc, RECT r) {
+    if (r.right<r.left) swap(r.left,r.right);
+    if (r.bottom<r.top) swap(r.top,r.bottom);
+    if (r.right-r.left<2||r.bottom-r.top<2) return;
+    int old = SetROP2(hdc, R2_NOT);
+    HPEN pen = CreatePen(PS_SOLID, 3, RGB(255,0,0));
+    HPEN op  = (HPEN)SelectObject(hdc, pen);
+    HGDIOBJ ob = SelectObject(hdc, GetStockObject(NULL_BRUSH));
     Rectangle(hdc, r.left, r.top, r.right, r.bottom);
-    SelectObject(hdc, oldPen);
-    SelectObject(hdc, oldBr);
-    DeleteObject(hPen);
-    SetROP2(hdc, oldRop);
+    SelectObject(hdc, op); SelectObject(hdc, ob);
+    DeleteObject(pen); SetROP2(hdc, old);
 }
 
-static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+static LRESULT CALLBACK WndProc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
     switch (msg) {
-
     case WM_PAINT: {
         PAINTSTRUCT ps;
-        HDC hdc = BeginPaint(hwnd, &ps);
+        HDC hdc = BeginPaint(hw, &ps);
         BitBlt(hdc, 0, 0, g_W, g_H, g_hMemDC, 0, 0, SRCCOPY);
-        if (g_hasPrev) drawXorRect(hdc, g_prevRect);
-        EndPaint(hwnd, &ps);
+        if (g_hasPrev) xorRect(hdc, g_prev);
+        EndPaint(hw, &ps);
         return 0;
     }
-
-    case WM_LBUTTONDOWN: {
-        g_start    = { (int)(short)LOWORD(lParam), (int)(short)HIWORD(lParam) };
-        g_end      = g_start;
-        g_dragging = true;
-        g_hasPrev  = false;
-        SetCapture(hwnd);
-        return 0;
+    case WM_LBUTTONDOWN:
+        g_s = {(int)(short)LOWORD(lp),(int)(short)HIWORD(lp)};
+        g_e = g_s; g_drag = true; g_hasPrev = false;
+        SetCapture(hw); return 0;
+    case WM_MOUSEMOVE:
+        if (!g_drag) break; {
+        HDC hdc = GetDC(hw);
+        if (g_hasPrev) xorRect(hdc, g_prev);
+        g_e = {(int)(short)LOWORD(lp),(int)(short)HIWORD(lp)};
+        RECT r{g_s.x,g_s.y,g_e.x,g_e.y};
+        xorRect(hdc, r); g_prev = r; g_hasPrev = true;
+        ReleaseDC(hw, hdc); } return 0;
+    case WM_LBUTTONUP:
+        if (!g_drag) break;
+        g_drag = false; ReleaseCapture();
+        if (g_hasPrev) { HDC hdc=GetDC(hw); xorRect(hdc,g_prev); ReleaseDC(hw,hdc); g_hasPrev=false; }
+        { int x1=g_s.x,y1=g_s.y,x2=(int)(short)LOWORD(lp),y2=(int)(short)HIWORD(lp);
+          if(x1>x2)swap(x1,x2); if(y1>y2)swap(y1,y2);
+          if(x2-x1>5&&y2-y1>5){toClipboard(x1,y1,x2-x1,y2-y1);beepDone();}
+          DestroyWindow(hw); } return 0;
+    case WM_KEYDOWN:
+        if (wp==VK_ESCAPE) {
+            if(g_hasPrev){HDC hdc=GetDC(hw);xorRect(hdc,g_prev);ReleaseDC(hw,hdc);}
+            toClipboard(0,0,g_W,g_H); beepDone(); DestroyWindow(hw);
+        } return 0;
+    case WM_DESTROY: PostQuitMessage(0); return 0;
     }
-
-    case WM_MOUSEMOVE: {
-        if (!g_dragging) break;
-        HDC hdc = GetDC(hwnd);
-        if (g_hasPrev) drawXorRect(hdc, g_prevRect);
-        g_end = { (int)(short)LOWORD(lParam), (int)(short)HIWORD(lParam) };
-        RECT r{ g_start.x, g_start.y, g_end.x, g_end.y };
-        drawXorRect(hdc, r);
-        g_prevRect = r;
-        g_hasPrev  = true;
-        ReleaseDC(hwnd, hdc);
-        return 0;
-    }
-
-    case WM_LBUTTONUP: {
-        if (!g_dragging) break;
-        g_dragging = false;
-        ReleaseCapture();
-        if (g_hasPrev) {
-            HDC hdc = GetDC(hwnd);
-            drawXorRect(hdc, g_prevRect);
-            ReleaseDC(hwnd, hdc);
-            g_hasPrev = false;
-        }
-        int x1 = g_start.x, y1 = g_start.y;
-        int x2 = (int)(short)LOWORD(lParam);
-        int y2 = (int)(short)HIWORD(lParam);
-        if (x1 > x2) swap(x1, x2);
-        if (y1 > y2) swap(y1, y2);
-        int w = x2 - x1, h = y2 - y1;
-        if (w > 5 && h > 5) {
-            copyRegionToClipboard(x1, y1, w, h);
-            beepDone();
-        }
-        DestroyWindow(hwnd);
-        return 0;
-    }
-
-    case WM_KEYDOWN: {
-        if (wParam == VK_ESCAPE) {
-            if (g_hasPrev) {
-                HDC hdc = GetDC(hwnd);
-                drawXorRect(hdc, g_prevRect);
-                ReleaseDC(hwnd, hdc);
-                g_hasPrev = false;
-            }
-            copyRegionToClipboard(0, 0, g_W, g_H);
-            beepDone();
-            DestroyWindow(hwnd);
-        }
-        return 0;
-    }
-
-    case WM_DESTROY:
-        PostQuitMessage(0);
-        return 0;
-    }
-    return DefWindowProcW(hwnd, msg, wParam, lParam);
+    return DefWindowProcW(hw, msg, wp, lp);
 }
 
-int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int) {
+int WINAPI WinMain(HINSTANCE hi, HINSTANCE, LPSTR, int) {
     captureFullScreen();
     beepReady();
 
-    WNDCLASSEXW wc{};
-    wc.cbSize        = sizeof(wc);
+    WNDCLASSEXW wc{sizeof(wc)};
     wc.lpfnWndProc   = WndProc;
-    wc.hInstance     = hInst;
+    wc.hInstance     = hi;
     wc.hCursor       = LoadCursorW(nullptr, MAKEINTRESOURCEW(32515));
-    wc.lpszClassName = L"SnipWnd";
+    wc.lpszClassName = L"Snip";
     wc.hbrBackground = (HBRUSH)GetStockObject(BLACK_BRUSH);
     RegisterClassExW(&wc);
 
-    HWND hwnd = CreateWindowExW(
-        WS_EX_TOPMOST,
-        L"SnipWnd", L"",
-        WS_POPUP | WS_VISIBLE,
-        0, 0, g_W, g_H,
-        nullptr, nullptr, hInst, nullptr
-    );
+    HWND hw = CreateWindowExW(WS_EX_TOPMOST, L"Snip", L"",
+        WS_POPUP|WS_VISIBLE, 0, 0, g_W, g_H, nullptr, nullptr, hi, nullptr);
 
     DwmFlush();
-    ShowWindow(hwnd, SW_SHOW);
-    UpdateWindow(hwnd);
-    SetForegroundWindow(hwnd);
-    SetFocus(hwnd);
+    SetForegroundWindow(hw);
+    SetFocus(hw);
 
     MSG msg{};
     while (GetMessageW(&msg, nullptr, 0, 0)) {
         TranslateMessage(&msg);
         DispatchMessageW(&msg);
     }
-
-    if (g_hMemDC)   DeleteDC(g_hMemDC);
-    if (g_hFullBmp) DeleteObject(g_hFullBmp);
+    DeleteDC(g_hMemDC);
     return 0;
 }
