@@ -103,7 +103,7 @@ int WINAPI WinMain(HINSTANCE hi, HINSTANCE, LPSTR, int) {
     WNDCLASSEXW wc = { sizeof(wc) };
     wc.lpfnWndProc   = WndProc;
     wc.hInstance     = hi;
-    wc.hCursor       = LoadCursorW(nullptr, IDC_CROSS);
+    wc.hCursor       = LoadCursorW(nullptr, (LPCWSTR)IDC_CROSS);
     wc.lpszClassName = L"snip";
     RegisterClassExW(&wc);
 
