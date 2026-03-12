@@ -6,12 +6,13 @@
 #include <algorithm>
 using std::swap;
 
-static HDC   g_hMemDC  = nullptr;
-static int   g_W = 0, g_H = 0;
-static bool  g_drag    = false;
-static POINT g_s{}, g_e{};
-static bool  g_hasPrev = false;
-static RECT  g_prev{};
+static HDC     g_hMemDC  = nullptr;
+static HBITMAP g_hBmp    = nullptr;
+static int     g_W = 0, g_H = 0;
+static bool    g_drag    = false;
+static POINT   g_s{}, g_e{};
+static bool    g_hasPrev = false;
+static RECT    g_prev{};
 
 static void beepReady() { Beep(880,80);  Beep(1318,120); }
 static void beepDone()  { Beep(1318,80); Beep(1760,120); }
@@ -19,9 +20,10 @@ static void beepDone()  { Beep(1318,80); Beep(1760,120); }
 static void captureFullScreen() {
     g_W = GetSystemMetrics(SM_CXSCREEN);
     g_H = GetSystemMetrics(SM_CYSCREEN);
-    HDC hScr = GetDC(nullptr);
-    g_hMemDC = CreateCompatibleDC(hScr);
-    SelectObject(g_hMemDC, CreateCompatibleBitmap(hScr, g_W, g_H));
+    HDC hScr  = GetDC(nullptr);
+    g_hMemDC  = CreateCompatibleDC(hScr);
+    g_hBmp    = CreateCompatibleBitmap(hScr, g_W, g_H);
+    SelectObject(g_hMemDC, g_hBmp);
     BitBlt(g_hMemDC, 0, 0, g_W, g_H, hScr, 0, 0, SRCCOPY|CAPTUREBLT);
     ReleaseDC(nullptr, hScr);
 }
@@ -38,7 +40,14 @@ static void toClipboard(int x, int y, int w, int h) {
     int stride = (w*3+3)&~3, pixSz = stride*h;
     HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE|GMEM_ZEROINIT, sizeof(BITMAPINFOHEADER)+pixSz);
     BYTE* p = (BYTE*)GlobalLock(hMem);
-    BITMAPINFO bi{}; bi.bmiHeader = {sizeof(BITMAPINFOHEADER),w,h,1,24,BI_RGB,DWORD(pixSz)};
+    BITMAPINFO bi{};
+    bi.bmiHeader.biSize        = sizeof(BITMAPINFOHEADER);
+    bi.bmiHeader.biWidth       = w;
+    bi.bmiHeader.biHeight      = h;
+    bi.bmiHeader.biPlanes      = 1;
+    bi.bmiHeader.biBitCount    = 24;
+    bi.bmiHeader.biCompression = BI_RGB;
+    bi.bmiHeader.biSizeImage   = pixSz;
     memcpy(p, &bi.bmiHeader, sizeof(BITMAPINFOHEADER));
     GetDIBits(hScr, hBmp, 0, h, p+sizeof(BITMAPINFOHEADER), &bi, DIB_RGB_COLORS);
     GlobalUnlock(hMem);
@@ -105,32 +114,29 @@ static LRESULT CALLBACK WndProc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
 }
 
 int WINAPI WinMain(HINSTANCE hi, HINSTANCE, LPSTR, int) {
-    // 先截图存入内存
     captureFullScreen();
     beepReady();
 
-    // 注册窗口类
     WNDCLASSEXW wc{sizeof(wc)};
     wc.lpfnWndProc   = WndProc;
     wc.hInstance     = hi;
     wc.hCursor       = LoadCursorW(nullptr, MAKEINTRESOURCEW(32515));
     wc.lpszClassName = L"Snip";
-    wc.hbrBackground = (HBRUSH)GetStockObject(NULL_BRUSH); // 不画黑色背景
+    wc.hbrBackground = (HBRUSH)GetStockObject(NULL_BRUSH);
     RegisterClassExW(&wc);
 
-    // 创建窗口但先不显示
     HWND hw = CreateWindowExW(WS_EX_TOPMOST, L"Snip", L"",
         WS_POPUP, 0, 0, g_W, g_H, nullptr, nullptr, hi, nullptr);
 
-    // 等DWM合成就绪
     DwmFlush();
 
-    // 先把截图画到窗口DC，再显示，避免黑屏
+    // 先贴截图再显示，避免黑屏
     HDC hdc = GetDC(hw);
     BitBlt(hdc, 0, 0, g_W, g_H, g_hMemDC, 0, 0, SRCCOPY);
     ReleaseDC(hw, hdc);
 
     ShowWindow(hw, SW_SHOW);
+    UpdateWindow(hw);
     SetForegroundWindow(hw);
     SetFocus(hw);
 
@@ -139,6 +145,8 @@ int WINAPI WinMain(HINSTANCE hi, HINSTANCE, LPSTR, int) {
         TranslateMessage(&msg);
         DispatchMessageW(&msg);
     }
+
+    DeleteObject(g_hBmp);
     DeleteDC(g_hMemDC);
     return 0;
 }
