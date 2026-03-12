@@ -152,8 +152,6 @@ func getScreenSize() (int, int) {
 	return int(w), int(h)
 }
 
-// 直接在桌面DC上用R2_NOT异或模式画红色边框
-// 调用两次同一个矩形 = 擦除（异或特性）
 func drawXorRect(x1, y1, x2, y2 int32) {
 	if x1 > x2 { x1, x2 = x2, x1 }
 	if y1 > y2 { y1, y2 = y2, y1 }
@@ -162,7 +160,7 @@ func drawXorRect(x1, y1, x2, y2 int32) {
 	hdc, _, _ := procGetDC.Call(0)
 	defer procReleaseDC.Call(0, hdc)
 
-	pen, _, _ := procCreatePen.Call(PS_SOLID, 4, 0x0000FF) // 红色(BGR) 4px
+	pen, _, _ := procCreatePen.Call(PS_SOLID, 4, 0x0000FF)
 	nullBrush, _, _ := procGetStockObject.Call(NULL_BRUSH)
 	oldPen, _, _ := procSelectObject.Call(hdc, pen)
 	procSelectObject.Call(hdc, nullBrush)
@@ -240,10 +238,9 @@ func copyToClipboard(img *image.RGBA) {
 	procCloseClipboard.Call()
 }
 
-// 双音提示：高音 → 更高音，清脆的"叮"声
 func playBeep() {
-	procBeep.Call(1318, 80) // E6
-	procBeep.Call(1760, 120) // A6
+	procBeep.Call(1318, 80)
+	procBeep.Call(1760, 120)
 }
 
 func wndProc(hwnd, msg, wParam, lParam uintptr) uintptr {
@@ -261,11 +258,9 @@ func wndProc(hwnd, msg, wParam, lParam uintptr) uintptr {
 		if isDragging {
 			x := int32(lParam & 0xFFFF)
 			y := int32((lParam >> 16) & 0xFFFF)
-			// 擦除上一帧
 			if hasPrevRect {
 				drawXorRect(prevRect.Left, prevRect.Top, prevRect.Right, prevRect.Bottom)
 			}
-			// 画新框
 			endPt = POINT{x, y}
 			drawXorRect(startPt.X, startPt.Y, endPt.X, endPt.Y)
 			prevRect = RECT{startPt.X, startPt.Y, endPt.X, endPt.Y}
@@ -276,7 +271,6 @@ func wndProc(hwnd, msg, wParam, lParam uintptr) uintptr {
 		if isDragging {
 			isDragging = false
 			procReleaseCapture.Call()
-			// 擦除最后一帧框
 			if hasPrevRect {
 				drawXorRect(prevRect.Left, prevRect.Top, prevRect.Right, prevRect.Bottom)
 				hasPrevRect = false
@@ -340,12 +334,10 @@ func main() {
 		0, 0, 0, 0,
 	)
 
-	// alpha=1：透明但能捕获鼠标；边框直接画在桌面DC上所以可见
 	procSetLayeredWindowAttributes.Call(hwnd, 0, 1, LWA_ALPHA)
 	procShowWindow.Call(hwnd, SW_SHOW)
 	procUpdateWindow.Call(hwnd)
 
-	// 等待窗口合成器就绪，避免首次运行黑屏/白屏
 	time.Sleep(150 * time.Millisecond)
 
 	var msg MSG

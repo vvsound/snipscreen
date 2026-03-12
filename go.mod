@@ -1,4 +1,4 @@
-module screenshot
+module snipscreen
 
 go 1.21
 

@@ -1,29 +1,28 @@
-name: Build snip.exe
+name: Build
 
 on:
   push:
+    branches: [ main ]
+  pull_request:
     branches: [ main ]
 
 jobs:
   build:
     runs-on: windows-latest
+
     steps:
-      - uses: actions/checkout@v4
+    - uses: actions/checkout@v4
 
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.21'
-          cache: false
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.21'
 
-      - name: Get dependencies
-        run: go mod tidy
+    - name: Build
+      run: go build -ldflags="-H windowsgui" -o snipscreen.exe .
 
-      - name: Build
-        run: go build -ldflags="-H windowsgui" -o snip.exe .
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: snip
-          path: snip.exe
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: snipscreen
+        path: snipscreen.exe
