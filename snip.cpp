@@ -10,7 +10,7 @@ static HDC     g_hMemDC;
 static HBITMAP g_hBmp;
 static int     g_W, g_H;
 static bool    g_drag;
-static POINT   g_s;
+static int     g_sx, g_sy;
 
 static void toClipboard(int x1, int y1, int x2, int y2) {
     int w = x2-x1, h = y2-y1;
@@ -36,7 +36,7 @@ static LRESULT CALLBACK WndProc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
         return 0;
     }
     case WM_LBUTTONDOWN:
-        g_s = {(int)(short)LOWORD(lp),(int)(short)HIWORD(lp)};
+        g_sx=(int)(short)LOWORD(lp); g_sy=(int)(short)HIWORD(lp);
         g_drag = true; SetCapture(hw);
         return 0;
     case WM_MOUSEMOVE:
@@ -47,15 +47,15 @@ static LRESULT CALLBACK WndProc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
         HPEN pen = CreatePen(PS_SOLID,2,RGB(255,0,0));
         SelectObject(hdc, (HPEN)SelectObject(hdc,pen));
         SelectObject(hdc, GetStockObject(NULL_BRUSH));
-        Rectangle(hdc, min(g_s.x,ex), min(g_s.y,ey), max(g_s.x,ex), max(g_s.y,ey));
+        Rectangle(hdc, min(g_sx,ex), min(g_sy,ey), max(g_sx,ex), max(g_sy,ey));
         DeleteObject(pen);
         ReleaseDC(hw, hdc);
         } return 0;
     case WM_LBUTTONUP:
         if (!g_drag) break;
         g_drag = false; ReleaseCapture(); {
-        int x1=min(g_s.x,(int)(short)LOWORD(lp)), y1=min(g_s.y,(int)(short)HIWORD(lp));
-        int x2=max(g_s.x,(int)(short)LOWORD(lp)), y2=max(g_s.y,(int)(short)HIWORD(lp));
+        int x1=min(g_sx,(int)(short)LOWORD(lp)), y1=min(g_sy,(int)(short)HIWORD(lp));
+        int x2=max(g_sx,(int)(short)LOWORD(lp)), y2=max(g_sy,(int)(short)HIWORD(lp));
         if (x2-x1>2 && y2-y1>2) toClipboard(x1,y1,x2,y2);
         } DestroyWindow(hw); return 0;
     case WM_KEYDOWN:
