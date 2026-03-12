@@ -6,9 +6,9 @@
 #include <algorithm>
 using std::swap;
 
-static HDC  g_hMemDC = nullptr;
-static int  g_W = 0, g_H = 0;
-static bool  g_drag = false;
+static HDC   g_hMemDC  = nullptr;
+static int   g_W = 0, g_H = 0;
+static bool  g_drag    = false;
 static POINT g_s{}, g_e{};
 static bool  g_hasPrev = false;
 static RECT  g_prev{};
@@ -105,21 +105,32 @@ static LRESULT CALLBACK WndProc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
 }
 
 int WINAPI WinMain(HINSTANCE hi, HINSTANCE, LPSTR, int) {
+    // 先截图存入内存
     captureFullScreen();
     beepReady();
 
+    // 注册窗口类
     WNDCLASSEXW wc{sizeof(wc)};
     wc.lpfnWndProc   = WndProc;
     wc.hInstance     = hi;
     wc.hCursor       = LoadCursorW(nullptr, MAKEINTRESOURCEW(32515));
     wc.lpszClassName = L"Snip";
-    wc.hbrBackground = (HBRUSH)GetStockObject(BLACK_BRUSH);
+    wc.hbrBackground = (HBRUSH)GetStockObject(NULL_BRUSH); // 不画黑色背景
     RegisterClassExW(&wc);
 
+    // 创建窗口但先不显示
     HWND hw = CreateWindowExW(WS_EX_TOPMOST, L"Snip", L"",
-        WS_POPUP|WS_VISIBLE, 0, 0, g_W, g_H, nullptr, nullptr, hi, nullptr);
+        WS_POPUP, 0, 0, g_W, g_H, nullptr, nullptr, hi, nullptr);
 
+    // 等DWM合成就绪
     DwmFlush();
+
+    // 先把截图画到窗口DC，再显示，避免黑屏
+    HDC hdc = GetDC(hw);
+    BitBlt(hdc, 0, 0, g_W, g_H, g_hMemDC, 0, 0, SRCCOPY);
+    ReleaseDC(hw, hdc);
+
+    ShowWindow(hw, SW_SHOW);
     SetForegroundWindow(hw);
     SetFocus(hw);
 
