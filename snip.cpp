@@ -6,8 +6,8 @@
 #include <algorithm>
 using std::swap;
 
-static HBITMAP g_hFullBmp  = nullptr;
-static HDC     g_hMemDC    = nullptr;
+static HBITMAP g_hFullBmp = nullptr;
+static HDC     g_hMemDC   = nullptr;
 static int     g_W = 0, g_H = 0;
 
 static bool  g_dragging = false;
@@ -30,26 +30,38 @@ static void captureFullScreen() {
 }
 
 static void copyRegionToClipboard(int x1, int y1, int w, int h) {
+    // 从内存DC裁剪区域
     HDC     hdcTmp = CreateCompatibleDC(g_hMemDC);
     HBITMAP hCrop  = CreateCompatibleBitmap(g_hMemDC, w, h);
-    SelectObject(hdcTmp, hCrop);
+    HGDIOBJ oldBmp = SelectObject(hdcTmp, hCrop);
     BitBlt(hdcTmp, 0, 0, w, h, g_hMemDC, x1, y1, SRCCOPY);
+    SelectObject(hdcTmp, oldBmp);
 
+    // 构造 DIB，biHeight 负值 = top-down，避免上下颠倒
     BITMAPINFOHEADER bi{};
     bi.biSize        = sizeof(bi);
     bi.biWidth       = w;
-    bi.biHeight      = h;
+    bi.biHeight      = -h;   // 负值！top-down
     bi.biPlanes      = 1;
-    bi.biBitCount    = 32;
+    bi.biBitCount    = 24;   // 24bpp，兼容性最好
     bi.biCompression = BI_RGB;
 
-    DWORD totalSize = sizeof(bi) + w * h * 4;
+    // 24bpp 每行需4字节对齐
+    int rowBytes    = (w * 3 + 3) & ~3;
+    int pixBytes    = rowBytes * h;
+    DWORD totalSize = sizeof(BITMAPINFOHEADER) + pixBytes;
+
     HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, totalSize);
     BYTE*   ptr  = (BYTE*)GlobalLock(hMem);
     memcpy(ptr, &bi, sizeof(bi));
+
     BITMAPINFO bmi{};
     bmi.bmiHeader = bi;
-    GetDIBits(hdcTmp, hCrop, 0, h, ptr + sizeof(bi), &bmi, DIB_RGB_COLORS);
+    // 用屏幕DC来GetDIBits更可靠
+    HDC hdcScreen = GetDC(nullptr);
+    GetDIBits(hdcScreen, hCrop, 0, h, ptr + sizeof(bi), &bmi, DIB_RGB_COLORS);
+    ReleaseDC(nullptr, hdcScreen);
+
     GlobalUnlock(hMem);
     DeleteObject(hCrop);
     DeleteDC(hdcTmp);
