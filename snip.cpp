@@ -198,7 +198,7 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int) {
     wc.cbSize        = sizeof(wc);
     wc.lpfnWndProc   = WndProc;
     wc.hInstance     = hInst;
-    wc.hCursor       = LoadCursorW(nullptr, IDC_CROSS);
+    wc.hCursor       = LoadCursorW(nullptr, MAKEINTRESOURCEW(32515));
     wc.lpszClassName = L"SnipWnd";
     wc.hbrBackground = (HBRUSH)GetStockObject(BLACK_BRUSH);
     RegisterClassExW(&wc);
