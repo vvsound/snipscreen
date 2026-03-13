@@ -117,7 +117,20 @@ int WINAPI WinMain(HINSTANCE hi, HINSTANCE, LPSTR, int) {
     WNDCLASSEXW wc = {sizeof(wc)};
     wc.lpfnWndProc   = WndProc;
     wc.hInstance     = hi;
-    wc.hCursor       = LoadCursorW(nullptr, (LPCWSTR)IDC_CROSS);
+    // 尝试加载 Windows 内置的"特大高亮"箭头指针（需开启"轻松访问→鼠标指针"大号/特大）
+    // 文件路径：%SystemRoot%\Cursors\aero_arrow_xl.cur
+    {
+        wchar_t curPath[MAX_PATH];
+        GetSystemWindowsDirectoryW(curPath, MAX_PATH);
+        lstrcatW(curPath, L"\\Cursors\\aero_arrow_xl.cur");
+        HCURSOR hCur = (HCURSOR)LoadImageW(nullptr, curPath,
+            IMAGE_CURSOR, 0, 0, LR_LOADFROMFILE | LR_DEFAULTSIZE);
+        if (!hCur) {
+            // 回退：用系统默认箭头
+            hCur = LoadCursorW(nullptr, (LPCWSTR)IDC_ARROW);
+        }
+        wc.hCursor = hCur;
+    }
     wc.lpszClassName = L"snip";
     RegisterClassExW(&wc);
 
